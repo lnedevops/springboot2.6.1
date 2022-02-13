@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: jenkins-slave
+spec:
+  tolerations:
+  - operator: "Exists"
+  hostAliases:
+  - ip: "192.168.230.135"       #设置dns映射，相当于hosts文件
+    hostnames:
+    - "gitlab.myfsl.club"
+    - "nexus.myfsl.club"
+    - "jenkins.myfsl.club"
+  serviceAccountName: jenkins-admin
+  securityContext:                  #容器安全设置
+    runAsUser: 0                    #以ROOT用户运行容器
+    privileged: true                #赋予特权执行容器
+  containers:
+  - name: jnlp                      #Jenkins Slave镜像,不要用alpine镜像，会出现各种环境问题
+    image: jenkins/jnlp-slave:4.3-8
+    #设置工作目录
+    workingDir: /home/jenkins/agent
+    tty: true
+    securtyContext:
+      runAsuser: 0
+      privileged: true
+    env:
+    - name: "JAVA_OPTS"
+      value: "-Duser.timezone=Asia/Shanghai -XX:MaxRAMPercentage=80.0 -Duser.region=US -Duser.language=en -Dfile.encoding=UTF-8"
+    volumeMounts:
+    - name: jenkins-plugin
+      mountPath: /jenkins-plugin
+    - name: projects
+      mountPath: /projects
+  - name: docker                    #Docker镜像
+    image: apextoaster/docker-dind:20.10
+    command: ['cat']
+    tty: true
+    volumeMounts:
+    - name: docker
+      mountPath: /usr/bin/docker
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+    - name: docker-config
+      mountPath: /etc/docker
+  - name: maven                     #Maven镜像
+    image: maven:3.8.4-openjdk
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: maven-m2
+      mountPath: /root/.m2
+  - name: helm-kubectl              #Kubectl & Helm镜像
+    image: dtzar/helm-kubectl:3.7
+    command:
+    - cat
+    tty: true
+  volumes:
+  - name: docker                    #将宿主机 Docker 文件夹挂进容器，方便存储&拉取本地镜像
+    hostPath:
+      path: /usr/bin/docker
+  - name: docker-sock               #将宿主机 Docker.sock 挂进容器
+    hostPath:
+      path: /var/run/docker.sock
+  - name: docker-config             #将宿主机 Docker 配置挂在进入容器
+    hostPath:
+      path: /etc/docker
+  - name: maven-m2                  #Maven 本地仓库挂在到 NFS 共享存储，方便不同节点能同时访问与存储
+    nfs:
+      server: 192.168.230.135
+      path: "/nfs/nfs-storage/jenkins-native-maven"
+  - name: jenkins-plugin
+    nfs:
+      server: 192.168.230.135
+      path: "/nfs/nfs-storage/jenkins-native-plugin"
+  - name: projects
+    nfs:
+      server: 192.168.230.135
+      path: "/nfs/nfs-storage/nginx-file/projects"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoreDuringExecution:
+        nodeSelectorTerms:
+          key: apps
+          operator: In
+          value: ["spring","myspring"]
+  
+         
+#  nodeSelector:
+#    kubernetes.io/hostname: node-2-12  #选择指定的节点进行调度
